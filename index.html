@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Allied Opportunities Index Interactive Map</title>
+  <!-- Link to the PWA manifest (prefix with repo name for GitHub Pages) -->
+  <link rel="manifest" href="/AOI/manifest.json">
+  <!-- Load the full Allied and Economic scores dataset -->
+  <script src="/AOI/aoi_scores.js"></script>
+  <style>
+    /* Color palette and global styles */
+    :root {
+      --background: #f5f6fa;
+      --surface: #ffffff;
+      --primary: #1a73e8;
+      --secondary: #3c4043;
+      --border-radius: 8px;
+    }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      display: flex;
+      height: 100vh;
+      background-color: var(--background);
+      color: var(--secondary);
+    }
+    #map-container {
+      flex: 2;
+      border-right: 1px solid #ccc;
+      overflow: auto;
+      position: relative;
+    }
+    #sidebar {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      background-color: var(--surface);
+      box-shadow: -2px 0 8px rgba(0, 0, 0, 0.05);
+      display: flex;
+      flex-direction: column;
+    }
+    #country-info {
+      margin-bottom: 20px;
+      background-color: var(--surface);
+      border-radius: var(--border-radius);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 16px;
+    }
+    #supply-chain-section {
+      display: none;
+      background-color: var(--surface);
+      border-radius: var(--border-radius);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 16px;
+    }
+    #toggle-sc {
+      margin-bottom: 20px;
+      background-color: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 12px;
+      cursor: pointer;
+      align-self: flex-start;
+    }
+    /* Score display styling for country cards */
+    .score {
+      display: flex;
+      align-items: center;
+      margin: 4px 0;
+    }
+    .score .icon {
+      font-size: 1.2em;
+      margin-right: 8px;
+    }
+    .score .label {
+      font-weight: bold;
+      margin-right: 4px;
+    }
+    /* Styles for supply chain rows */
+    .supplier-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 6px;
+      padding: 6px;
+      background-color: var(--background);
+      border-radius: var(--border-radius);
+      align-items: center;
+    }
+    .supplier-row select,
+    .supplier-row input {
+      flex: 1;
+    }
+    .remove-supplier-btn {
+      background-color: #e53935;
+      color: #fff;
+      border: none;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    /* Results card in supply chain section */
+    #sc-results {
+      margin-top: 12px;
+      padding: 12px;
+      background-color: var(--surface);
+      border-radius: var(--border-radius);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    /* Toolbar for action buttons in supply chain section */
+    .sc-toolbar {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    /* Primary action buttons */
+    #add-supplier-btn,
+    #evaluate-btn {
+      background-color: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 12px;
+      margin-top: 8px;
+      cursor: pointer;
+    }
+    /* Version badge */
+    footer {
+      position: fixed;
+      right: 12px;
+      bottom: 10px;
+      background: var(--primary);
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font: 500 12px/1.1 system-ui, -apple-system;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <!-- Map container; the world SVG will be loaded dynamically via fetch -->
+  <div id="map-container">
+    <div id="map"></div>
+  </div>
+  <!-- Sidebar displaying country information and supply chain interface -->
+  <div id="sidebar">
+    <button id="toggle-sc">Show Supply Chain Panel</button>
+    <div id="country-info">
+      <h2>Allied Opportunities Index</h2>
+      <p>Click a country on the map to view its scores.</p>
+    </div>
+    <div id="supply-chain-section">
+      <h2>Supply Chain Evaluation</h2>
+      <p>Select your suppliers and their spend values.</p>
+      <!-- Container for dynamic supplier rows -->
+      <div id="supplier-list"></div>
+      <!-- Toolbar for action buttons -->
+      <div class="sc-toolbar">
+        <button id="add-supplier-btn">Add Supplier</button>
+        <button id="evaluate-btn">Evaluate</button>
+      </div>
+      <div id="sc-results"></div>
+    </div>
+  </div>
+  <footer>AOI UI v5 • 27 Sep 2025</footer>
+  <script>
+    // Load the SVG map and set up click handlers
+    fetch('/AOI/world_map.svg')
+      .then(resp => resp.text())
+      .then(svgText => {
+        document.getElementById('map').innerHTML = svgText;
+        const paths = document.querySelectorAll('#map svg path');
+        paths.forEach(path => {
+          const code = path.getAttribute('id');
+          if (code) {
+            path.style.cursor = 'pointer';
+            path.addEventListener('click', () => showCountry(code));
+          }
+        });
+      });
+
+    // Display country information in the sidebar
+    function showCountry(code) {
+      const infoDiv = document.getElementById('country-info');
+      const data = countryScores[code];
+      if (data) {
+        infoDiv.innerHTML = `
+          <h3>${data.name}</h3>
+          <div class="score"><span class="icon">🛡️</span><span class="label">Allied:</span> ${data.allied.toFixed(2)}</div>
+          <div class="score"><span class="icon">💰</span><span class="label">Economic:</span> ${data.economic.toFixed(2)}</div>
+        `;
+      } else {
+        infoDiv.innerHTML = `
+          <h3>No data</h3>
+          <p>No data available for this country.</p>
+        `;
+      }
+    }
+
+    // Toggle supply chain panel visibility
+    const toggleBtn = document.getElementById('toggle-sc');
+    const scSection = document.getElementById('supply-chain-section');
+    toggleBtn.addEventListener('click', () => {
+      const visible = scSection.style.display === 'block';
+      scSection.style.display = visible ? 'none' : 'block';
+      toggleBtn.textContent = visible ? 'Show Supply Chain Panel' : 'Hide Supply Chain Panel';
+    });
+
+    // Add a new supplier row
+    const supplierList = document.getElementById('supplier-list');
+    document.getElementById('add-supplier-btn').addEventListener('click', addSupplierRow);
+    function addSupplierRow() {
+      const row = document.createElement('div');
+      row.className = 'supplier-row';
+      // Country dropdown
+      const select = document.createElement('select');
+      for (const code in countryScores) {
+        const opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = countryScores[code].name;
+        select.appendChild(opt);
+      }
+      // Spend input
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = '0';
+      input.step = 'any';
+      input.value = '';
+      input.placeholder = 'Spend';
+      // Remove button
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-supplier-btn';
+      removeBtn.textContent = 'Remove';
+      removeBtn.addEventListener('click', () => row.remove());
+      // Append to row
+      row.appendChild(select);
+      row.appendChild(input);
+      row.appendChild(removeBtn);
+      supplierList.appendChild(row);
+    }
+    // Initialize with one supplier row
+    addSupplierRow();
+
+    // Evaluate the supply chain
+    document.getElementById('evaluate-btn').addEventListener('click', () => {
+      const rows = supplierList.querySelectorAll('.supplier-row');
+      let totalSpend = 0;
+      let weightedAllied = 0;
+      let weightedEconomic = 0;
+      const usedCodes = [];
+      rows.forEach(row => {
+        const sel = row.querySelector('select');
+        const inp = row.querySelector('input');
+        const code = sel.value;
+        const spend = parseFloat(inp.value) || 0;
+        usedCodes.push(code);
+        totalSpend += spend;
+        if (spend > 0) {
+          const data = countryScores[code];
+          weightedAllied += data.allied * spend;
+          weightedEconomic += data.economic * spend;
+        }
+      });
+      let resultHTML = '';
+      if (totalSpend > 0) {
+        const alliedScore = weightedAllied / totalSpend;
+        const econScore = weightedEconomic / totalSpend;
+        resultHTML += `<p><strong>Weighted Allied Score:</strong> ${alliedScore.toFixed(2)}</p>`;
+        resultHTML += `<p><strong>Weighted Economic Score:</strong> ${econScore.toFixed(2)}</p>`;
+      } else {
+        resultHTML += `<p>No spend entered. Please enter spend values for your suppliers.</p>`;
+      }
+      // Suggest alternative countries: top 3 by combined score not in current chain
+      const suggestions = Object.keys(countryScores)
+        .filter(code => !usedCodes.includes(code))
+        .map(code => {
+          const d = countryScores[code];
+          return { code, name: d.name, combined: d.allied * 0.6 + d.economic * 0.4 };
+        })
+        .sort((a, b) => b.combined - a.combined)
+        .slice(0, 3);
+      if (suggestions.length > 0) {
+        resultHTML += '<p><strong>Suggested Alternatives:</strong></p><ul>';
+        suggestions.forEach(s => {
+          resultHTML += `<li>${s.name} (score: ${s.combined.toFixed(2)})</li>`;
+        });
+        resultHTML += '</ul>';
+      }
+      document.getElementById('sc-results').innerHTML = resultHTML;
+    });
+
+    // Register service worker to enable PWA functionality with cache busting
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/AOI/service-worker.js?v=2025-09-27T18-30', { scope: '/AOI/' })
+        .then(function(registration) {
+          console.log('ServiceWorker registration successful with scope:', registration.scope);
+        })
+        .catch(function(err) {
+          console.log('ServiceWorker registration failed:', err);
+        });
+    }
+  </script>
+</body>
+</html>
